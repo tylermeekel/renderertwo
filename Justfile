@@ -5,7 +5,8 @@ build:
     @slangc shaders/main.slang -target metal -o shaders/main.metal
     @echo "Building Odin Project..."
     @odin build . -out:out/gpu
-    @echo "Build Complete, Running..."
+    @echo "Build Complete!"
 
 run: build
+    @echo "Running..."
     @./out/gpu
