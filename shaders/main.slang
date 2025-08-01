@@ -1,6 +1,5 @@
 struct UBO {
     float4x4 projection_matrix;
-    float4 color;
 };
 
 ConstantBuffer<UBO> uniformBuffer: register(b0);
@@ -26,5 +25,5 @@ float4 vertex_main(
 
 [shader("fragment")]
 float4 fragment_main() {
-    return uniformBuffer.color;
+    return float4(1, 0, 0, 1);
 }

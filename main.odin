@@ -9,7 +9,6 @@ main_code := #load("./shaders/main.metal")
 
 UBO :: struct {
     projection_matrix: matrix[4, 4]f32,
-    color: [4]f32,
 }
 
 main :: proc() {
@@ -29,9 +28,11 @@ main :: proc() {
     ok = sdl.ClaimWindowForGPUDevice(gpu, window)
     assert(ok, "Failed to claim window for GPU device")
 
-    vertex_shader := load_shader(gpu, main_code, "vertex_main", .VERTEX, 1)
+    vertex_shader := load_shader(gpu, main_code, "vertex_main", .VERTEX, {
+        num_uniform_buffers = 1
+    })
     assert(vertex_shader != nil, "Vertex Shader is nil!")
-    fragment_shader := load_shader(gpu, main_code, "fragment_main", .FRAGMENT, 1)
+    fragment_shader := load_shader(gpu, main_code, "fragment_main", .FRAGMENT)
     assert(fragment_shader != nil, "Fragment Shader is nil!")
 
     pipeline := sdl.CreateGPUGraphicsPipeline(gpu, {
@@ -59,7 +60,6 @@ main :: proc() {
 
     ubo := UBO {
         projection_matrix = projection_matrix,
-        color = {0, 1, 0, 1},
     }
 
     // Buffer Props
@@ -69,44 +69,6 @@ main :: proc() {
         sdl.PROP_GPU_BUFFER_CREATE_NAME_STRING,
         "Uniform Buffer"
     )
-
-    // Create Buffer
-    buffer := sdl.CreateGPUBuffer(gpu, {
-        usage = {.GRAPHICS_STORAGE_READ},
-        size = size_of(UBO)
-    })
-
-    // Create Transfer Buffer
-    transfer_buffer := sdl.CreateGPUTransferBuffer(gpu, {
-        usage = .UPLOAD,
-        size = size_of(UBO)
-    })
-
-    // Map Transfer Buffer
-    transfer_buffer_mem := sdl.MapGPUTransferBuffer(gpu, transfer_buffer, false)
-    // Copy UBO into Transfer buffer
-    mem.copy(transfer_buffer_mem, &ubo, size_of(UBO))
-    // Unmap Transfer Buffer
-    sdl.UnmapGPUTransferBuffer(gpu, transfer_buffer)
-
-    // Create Copy Command Buffer
-    copy_command_buf := sdl.AcquireGPUCommandBuffer(gpu)
-    // Begin Copy Pass
-    copy_pass := sdl.BeginGPUCopyPass(copy_command_buf)
-    // Copy
-    sdl.UploadToGPUBuffer(copy_pass, {
-        transfer_buffer = transfer_buffer,
-        offset = 0
-    }, {
-        buffer = buffer,
-        offset = 0,
-        size = size_of(UBO)
-    }, false)
-
-    // End Copy Pass
-    sdl.EndGPUCopyPass(copy_pass)
-    ok = sdl.SubmitGPUCommandBuffer(copy_command_buf)
-    assert(ok)
 
     main_loop: for {
         // process events
@@ -130,10 +92,6 @@ main :: proc() {
         swapchain_texture: ^sdl.GPUTexture
         ok = sdl.WaitAndAcquireGPUSwapchainTexture(command_buffer, window, &swapchain_texture, nil, nil)
         assert(ok, "Failed to acquire swapchain texture")
-        
-        ubo := UBO {
-            projection_matrix = projection_matrix,
-        }
 
         color_target := sdl.GPUColorTargetInfo {
             texture = swapchain_texture,
@@ -145,8 +103,7 @@ main :: proc() {
 
         // draw stuff
         sdl.BindGPUGraphicsPipeline(render_pass, pipeline)
-        sdl.BindGPUVertexStorageBuffers(render_pass, 0, &buffer, 1)
-        sdl.BindGPUFragmentStorageBuffers(render_pass, 0, &buffer, 1)
+        sdl.PushGPUVertexUniformData(command_buffer, 0, &ubo, size_of(UBO))
         sdl.DrawGPUPrimitives(render_pass, 3, 1, 0, 0)
 
         // end render pass
@@ -158,13 +115,23 @@ main :: proc() {
     }
 }
 
-load_shader :: proc(gpu: ^sdl.GPUDevice, code: []u8, entrypoint: cstring, stage: sdl.GPUShaderStage, num_storage_buffers: u32 = 0) -> ^sdl.GPUShader {
+ExtraShaderInfo :: struct {
+    num_samplers: u32,
+    num_storage_textures: u32,
+    num_uniform_buffers: u32,
+    num_storage_buffers: u32,
+}
+
+load_shader :: proc(gpu: ^sdl.GPUDevice, code: []u8, entrypoint: cstring, stage: sdl.GPUShaderStage, extra_info: ExtraShaderInfo = {}) -> ^sdl.GPUShader {
     return sdl.CreateGPUShader(gpu, {
         code_size = len(code),
         code = raw_data(code),
         entrypoint = entrypoint,
         format = {.MSL},
         stage = stage,
-        num_storage_buffers = num_storage_buffers
+        num_samplers = extra_info.num_samplers,
+        num_storage_textures = extra_info.num_storage_textures,
+        num_uniform_buffers = extra_info.num_uniform_buffers,
+        num_storage_buffers = extra_info.num_storage_buffers
     })
 }
