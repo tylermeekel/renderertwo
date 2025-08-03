@@ -7,8 +7,15 @@ import sdl "vendor:sdl3"
 
 main_code := #load("./shaders/main.metal")
 
+time: u64 = 0
+
 UBO :: struct {
-    projection_matrix: matrix[4, 4]f32,
+    mvp_matrix: matrix[4, 4]f32,
+}
+
+Vertex :: struct {
+    pos: [4]f32,
+    color: [4]f32
 }
 
 main :: proc() {
@@ -35,6 +42,27 @@ main :: proc() {
     fragment_shader := load_shader(gpu, main_code, "fragment_main", .FRAGMENT)
     assert(fragment_shader != nil, "Fragment Shader is nil!")
 
+    vertex_buffer_description := sdl.GPUVertexBufferDescription {
+        slot = 0,
+        pitch = size_of(Vertex),
+        input_rate = .VERTEX,
+    }
+
+    vertex_attributes := []sdl.GPUVertexAttribute {
+        {
+            location = 0,
+            buffer_slot = 0,
+            format = .FLOAT4,
+            offset = u32(offset_of(Vertex, pos))
+        },
+        {
+            location = 1,
+            buffer_slot = 0,
+            format = .FLOAT4,
+            offset = u32(offset_of(Vertex, color))
+        }
+    }
+
     pipeline := sdl.CreateGPUGraphicsPipeline(gpu, {
         vertex_shader = vertex_shader,
         fragment_shader = fragment_shader,
@@ -44,6 +72,12 @@ main :: proc() {
             color_target_descriptions = &sdl.GPUColorTargetDescription {
                 format = sdl.GetGPUSwapchainTextureFormat(gpu, window)
             }
+        },
+        vertex_input_state = {
+            vertex_buffer_descriptions = &vertex_buffer_description,
+            num_vertex_buffers = 1,
+            vertex_attributes = raw_data(vertex_attributes),
+            num_vertex_attributes = 2
         }
     })
     defer sdl.ReleaseGPUGraphicsPipeline(gpu, pipeline)
@@ -58,17 +92,68 @@ main :: proc() {
     aspect := f32(width) / f32(height)
     projection_matrix := linalg.matrix4_perspective_f32(70, aspect, 0.0001, 1000)
 
-    ubo := UBO {
-        projection_matrix = projection_matrix,
+    vertices := []Vertex {
+            {
+                pos = {-1, -1, 0, 1},
+                color = {1, 0, 0, 1},
+            },
+            {
+                pos = {0, 1, 0, 1},
+                color = {0, 1, 0, 1},
+            },
+            {
+                pos = {1, -1, 0, 1},
+                color = {0, 0, 1, 1}
+            }
     }
 
-    // Buffer Props
-    props := sdl.CreateProperties()
-    sdl.SetStringProperty(
-        props,
-        sdl.PROP_GPU_BUFFER_CREATE_NAME_STRING,
-        "Uniform Buffer"
-    )
+    vertices_size := u32(len(vertices) * size_of(Vertex))
+
+    // Create Vertex Buffer
+    vertex_buffer := sdl.CreateGPUBuffer(gpu, {
+        usage = {.VERTEX},
+        size = vertices_size
+    })
+
+    // Create Transfer Buffer
+    transfer_buffer := sdl.CreateGPUTransferBuffer(gpu, {
+        usage = .UPLOAD,
+        size = vertices_size
+    })
+
+    // Map Transfer Buffer Memory
+    transfer_buffer_mem := sdl.MapGPUTransferBuffer(gpu, transfer_buffer, false)
+
+    // Copy to Transfer Buffer
+    mem.copy(transfer_buffer_mem, raw_data(vertices), int(vertices_size))
+
+    // Unmap Transfer Buffer
+    sdl.UnmapGPUTransferBuffer(gpu, transfer_buffer)
+
+    // Create Copy Pass Command Buffer
+    copy_command_buffer := sdl.AcquireGPUCommandBuffer(gpu)
+
+    // Start Copy Pass
+    copy_pass := sdl.BeginGPUCopyPass(copy_command_buffer)
+    // Copy from TBuffer to Vertex Buffer
+    sdl.UploadToGPUBuffer(copy_pass, {
+        transfer_buffer = transfer_buffer,
+        offset = 0
+    }, {
+        buffer = vertex_buffer,
+        offset = 0,
+        size = vertices_size
+    }, false)
+    // End Copy Pass
+    sdl.EndGPUCopyPass(copy_pass)
+    // Submit Command Buffer
+    ok = sdl.SubmitGPUCommandBuffer(copy_command_buffer)
+    assert(ok, "Failed to submit vertex copy buffer")
+
+    vertex_buffer_binding := sdl.GPUBufferBinding {
+        buffer = vertex_buffer,
+        offset = 0
+    }
 
     main_loop: for {
         // process events
@@ -83,6 +168,16 @@ main :: proc() {
         }
 
         // update game state
+        currentTime := sdl.GetTicks()
+        deltaTime := (currentTime - time) / 1000
+        time = currentTime
+
+        model_matrix := linalg.matrix4_translate_f32({0, 0, -5})
+        model_matrix *= linalg.matrix4_rotate_f32(f32(f32(currentTime) / 1000), [3]f32{0, 1, 0})
+
+        ubo := UBO {
+            mvp_matrix = projection_matrix * model_matrix
+        }
 
         // render
         // acquire command buffer
@@ -103,6 +198,7 @@ main :: proc() {
 
         // draw stuff
         sdl.BindGPUGraphicsPipeline(render_pass, pipeline)
+        sdl.BindGPUVertexBuffers(render_pass, 0, &vertex_buffer_binding, 1)
         sdl.PushGPUVertexUniformData(command_buffer, 0, &ubo, size_of(UBO))
         sdl.DrawGPUPrimitives(render_pass, 3, 1, 0, 0)
 

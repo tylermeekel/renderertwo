@@ -1,29 +1,34 @@
 struct UBO {
-    float4x4 projection_matrix;
+    float4x4 mvp;
 };
+
+struct Vertex {
+    float4 pos;
+    float4 color;
+};
+
+struct VertexOut {
+    float4 pos: SV_Position;
+    float4 color;
+}
 
 ConstantBuffer<UBO> uniformBuffer: register(b0);
 
 [shader("vertex")]
-float4 vertex_main(
-    uint vertex_id: SV_VertexID,
+VertexOut vertex_main(
+    Vertex vertex,
 ) {
-    float4 position;
+    VertexOut vert_out;
 
-    if (vertex_id == 0) {
-        position = float4(-0.5, -0.5, -5.0, 1.0);
-    } else if (vertex_id == 1) {
-        position = float4(0, 0.5, -5.0, 1);
-    } else if (vertex_id == 2) {
-        position = float4(0.5, -0.5, -5.0, 1.0);
-    } else {
-        position = float4(0, 0, 0, 0);
-    }
+    vert_out.pos = mul(uniformBuffer.mvp, vertex.pos);
+    vert_out.color = vertex.color;
 
-    return mul(uniformBuffer.projection_matrix, position);
+    return vert_out;
 }
 
 [shader("fragment")]
-float4 fragment_main() {
-    return float4(1, 0, 0, 1);
+float4 fragment_main(
+    VertexOut vertex_in,
+) {
+    return vertex_in.color;
 }
