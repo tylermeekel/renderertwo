@@ -93,21 +93,30 @@ main :: proc() {
     projection_matrix := linalg.matrix4_perspective_f32(70, aspect, 0.0001, 1000)
 
     vertices := []Vertex {
-            {
+            { // bl
                 pos = {-1, -1, 0, 1},
-                color = {1, 0, 0, 1},
+                color = {1, 1, 0, 1},
             },
-            {
-                pos = {0, 1, 0, 1},
-                color = {0, 1, 0, 1},
+            { // tl
+                pos = {-1, 1, 0, 1},
+                color = {1, 0, 1, 1},
             },
-            {
+            { // tr
+                pos = {1, 1, 0, 1},
+                color = {0, 1, 1, 1}
+            },
+            { // br
                 pos = {1, -1, 0, 1},
-                color = {0, 0, 1, 1}
+                color = {1, 1, 1, 1}
             }
     }
-
     vertices_size := u32(len(vertices) * size_of(Vertex))
+
+    indices := []u32{
+        0, 1, 2,
+        0, 2, 3,
+    }
+    indices_size := u32(len(indices) * size_of(u32))
 
     // Create Vertex Buffer
     vertex_buffer := sdl.CreateGPUBuffer(gpu, {
@@ -115,17 +124,23 @@ main :: proc() {
         size = vertices_size
     })
 
+    index_buffer := sdl.CreateGPUBuffer(gpu, {
+        usage = {.INDEX},
+        size = indices_size
+    })
+
     // Create Transfer Buffer
     transfer_buffer := sdl.CreateGPUTransferBuffer(gpu, {
         usage = .UPLOAD,
-        size = vertices_size
+        size = vertices_size + indices_size
     })
 
     // Map Transfer Buffer Memory
-    transfer_buffer_mem := sdl.MapGPUTransferBuffer(gpu, transfer_buffer, false)
+    transfer_buffer_mem := transmute([^]byte)sdl.MapGPUTransferBuffer(gpu, transfer_buffer, false)
 
     // Copy to Transfer Buffer
     mem.copy(transfer_buffer_mem, raw_data(vertices), int(vertices_size))
+    mem.copy(transfer_buffer_mem[vertices_size:], raw_data(indices), int(indices_size))
 
     // Unmap Transfer Buffer
     sdl.UnmapGPUTransferBuffer(gpu, transfer_buffer)
@@ -144,6 +159,17 @@ main :: proc() {
         offset = 0,
         size = vertices_size
     }, false)
+
+    // Copy from TBuffer to Index Buffer
+    sdl.UploadToGPUBuffer(copy_pass, {
+        transfer_buffer = transfer_buffer,
+        offset = vertices_size
+    }, {
+        buffer = index_buffer,
+        offset = 0,
+        size = indices_size
+    }, false)
+
     // End Copy Pass
     sdl.EndGPUCopyPass(copy_pass)
     // Submit Command Buffer
@@ -200,7 +226,9 @@ main :: proc() {
         sdl.BindGPUGraphicsPipeline(render_pass, pipeline)
         sdl.BindGPUVertexBuffers(render_pass, 0, &vertex_buffer_binding, 1)
         sdl.PushGPUVertexUniformData(command_buffer, 0, &ubo, size_of(UBO))
-        sdl.DrawGPUPrimitives(render_pass, 3, 1, 0, 0)
+        sdl.BindGPUIndexBuffer(render_pass, {buffer = index_buffer}, ._32BIT)
+        // sdl.DrawGPUPrimitives(render_pass, 3, 1, 0, 0) - old (for drawing direct points)
+        sdl.DrawGPUIndexedPrimitives(render_pass, 6, 1, 0, 0, 0)
 
         // end render pass
         sdl.EndGPURenderPass(render_pass)
