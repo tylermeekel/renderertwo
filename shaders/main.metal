@@ -62,7 +62,7 @@ struct KernelContext_0
     ;
 
 #line 37
-    pixelOutput_0 _S2 = { (((&kernelContext_0)->entryPointParams_sampler_texture_0).sample(((&kernelContext_0)->entryPointParams_sampler_sampler_0), (_S1.uv_0))) * _S1.color_0 };
+    pixelOutput_0 _S2 = { (((&kernelContext_0)->entryPointParams_sampler_texture_0).sample(((&kernelContext_0)->entryPointParams_sampler_sampler_0), (_S1.uv_0))) };
 
 #line 37
     return _S2;
